@@ -128,7 +128,7 @@ function inspectPlayerPage(playerUrl, referer, streams) {
             }
         });
         
-        const mediaRegex = /https?:\/\/[^"'\s<]+(?:\.m3u8|\.mp4|(?:googlevideo|blogger|blogspot|bloggerusercontent)[^"'\s<]*)/gi;
+        const mediaRegex = /https?:\/\/[^"\'\s<]+(?:\.m3u8|\.mp4|(?:googlevideo|blogger|blogspot|bloggerusercontent)[^"\'\s<]*)/gi;
         let match;
         while ((match = mediaRegex.exec(cleanHtml)) !== null) {
             candidates.add(match[0]);
@@ -196,7 +196,8 @@ function searchKuronime(query) {
             
             if (title) {
                 results.push({
-                    title: title.trim(),\n                    url: href.trim()
+                    title: title.trim(),
+                    url: href.trim()
                 });
             }
         });
@@ -344,7 +345,7 @@ function extractStreamsFromEpisode(episodeUrl) {
     })
     .then(res => res.text())
     .then(html => {
-        const idMatch = html.match(/var\s+_0xa100d42aa\s*=\\s*["']([^"']+)["']/);
+        const idMatch = html.match(/var\s+_0xa100d42aa\s*=\s*["\']([^"\']+)["\']/);
         const encryptedId = idMatch ? idMatch[1] : null;
         
         if (!encryptedId) {
