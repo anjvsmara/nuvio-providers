@@ -1,11 +1,11 @@
 {
-  "name": "My Repo Nuvio",
+  "name": "Nuvio",
   "version": "1.0.0",
   "scrapers": [
     {
       "id": "kuronime",
-      "name": "Kuronime😤",
-      "description": "Provider anime Indonesia dikonversi dari Cloudstream",
+      "name": "Kuronime",
+      "description": "Provider anime",
       "version": "1.0.0",
       "author": "anjvsmara",
       "supportedTypes": [
