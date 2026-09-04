@@ -67,6 +67,12 @@ function isDirectMedia(url) {
         return false;
     }
     
+    // Pastikan URL memiliki path yang valid (bukan sekadar domain/host kotor akibat salah regex)
+    const pathParts = cleanUrl.split('/');
+    if (pathParts.length < 4 || pathParts[3] === "") {
+        return false;
+    }
+    
     return cleanUrl.endsWith(".m3u8") || 
            cleanUrl.endsWith(".mp4") || 
            cleanUrl.includes("mime=video/mp4") || 
@@ -128,7 +134,8 @@ function inspectPlayerPage(playerUrl, referer, streams) {
             }
         });
         
-        const mediaRegex = /https?:\/\/[^"\'\s<]+(?:\.m3u8|\.mp4|(?:googlevideo|blogger|blogspot|bloggerusercontent)[^"\'\s<]*)/gi;
+        // Memakai negative lookahead (?!\w) agar tidak menangkap domain ".mp4upload.com" sebagai ".mp4"
+        const mediaRegex = /https?:\/\/[^"'\s<]+?(?:\.m3u8|\.mp4)(?!\w)|https?:\/\/[^"'\s<]+?(?:googlevideo|blogger|blogspot|bloggerusercontent)[^"'\s<]*/gi;
         let match;
         while ((match = mediaRegex.exec(cleanHtml)) !== null) {
             candidates.add(match[0]);
@@ -447,6 +454,7 @@ function inspectPageFallback(episodeHtml, episodeUrl, streams) {
     });
     
     return Promise.all(promises).then(() => streams);
+    
 }
 
 module.exports = { getStreams };
