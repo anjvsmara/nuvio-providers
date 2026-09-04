@@ -60,18 +60,49 @@ function decodeMirrorPayload(encoded) {
 }
 
 function isDirectMedia(url) {
-    const lower = url.toLowerCase();
-    return lower.includes(".m3u8") || 
-           lower.includes(".mp4") || 
-           lower.includes("mime=video/mp4") || 
-           lower.includes("mime=video%2fmp4") || 
-           lower.includes("googlevideo") || 
-           lower.includes("bloggerusercontent");
+    const cleanUrl = url.split('?')[0].toLowerCase();
+    
+    // Pastikan bukan halaman embed HTML biasa (seperti .html atau .htm)
+    if (cleanUrl.endsWith(".html") || cleanUrl.endsWith(".htm")) {
+        return false;
+    }
+    
+    return cleanUrl.endsWith(".m3u8") || 
+           cleanUrl.endsWith(".mp4") || 
+           cleanUrl.includes("mime=video/mp4") || 
+           cleanUrl.includes("mime=video%2fmp4") || 
+           cleanUrl.includes("googlevideo") || 
+           cleanUrl.includes("bloggerusercontent");
 }
 
 function getQualityFromUrl(url) {
     const match = url.match(/\b(2160|1440|1080|720|480|360|240)\b/);
     return match ? match[1] + "p" : "Auto";
+}
+
+function unpack(html) {
+    const packerRegex = /eval\(function\(p,a,c,k,e,[rd]\)\{[\s\S]*?return\s+p[\s\S]*?\}\(([\s\S]*?)\)\)/;
+    const match = html.match(packerRegex);
+    if (!match) return html;
+    try {
+        const args = new Function(`return [${match[1]}]`)();
+        let p = args[0], a = args[1], c = args[2], k = args[3], e = args[4], d = args[5];
+        if (typeof k === 'string') k = k.split('|');
+        
+        const decode = function(w) {
+            return (w < a ? '' : decode(Math.floor(w / a))) + 
+                   ((w % a) > 35 ? String.fromCharCode((w % a) + 29) : (w % a).toString(36));
+        };
+        
+        while (c--) {
+            if (k[c]) {
+                p = p.replace(new RegExp('\\b' + decode(c) + '\\b', 'g'), k[c]);
+            }
+        }
+        return p;
+    } catch (err) {
+        return html;
+    }
 }
 
 function inspectPlayerPage(playerUrl, referer, streams) {
@@ -83,7 +114,9 @@ function inspectPlayerPage(playerUrl, referer, streams) {
     })
     .then(res => res.text())
     .then(html => {
-        const cleanHtml = html.replace(/\\/g, '');
+        // Unpack script mp4upload atau pemutar terkompresi lainnya
+        const unpackedHtml = unpack(html);
+        const cleanHtml = unpackedHtml.replace(/\\/g, '');
         const $ = cheerio.load(cleanHtml);
         const candidates = new Set();
         
@@ -163,8 +196,7 @@ function searchKuronime(query) {
             
             if (title) {
                 results.push({
-                    title: title.trim(),
-                    url: href.trim()
+                    title: title.trim(),\n                    url: href.trim()
                 });
             }
         });
@@ -312,7 +344,7 @@ function extractStreamsFromEpisode(episodeUrl) {
     })
     .then(res => res.text())
     .then(html => {
-        const idMatch = html.match(/var\s+_0xa100d42aa\s*=\s*["']([^"']+)["']/);
+        const idMatch = html.match(/var\s+_0xa100d42aa\s*=\\s*["']([^"']+)["']/);
         const encryptedId = idMatch ? idMatch[1] : null;
         
         if (!encryptedId) {
