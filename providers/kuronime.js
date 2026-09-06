@@ -352,7 +352,7 @@ function extractStreamsFromEpisode(episodeUrl) {
     })
     .then(res => res.text())
     .then(html => {
-        const idMatch = html.match(/var\s+_0xa100d42aa\s*=\s*["']([^"']+)["']/);
+        const idMatch = html.match(/var\s+_0xa100d42aa\s*=\s*["\']([^"\']+)["\']/);
         const encryptedId = idMatch ? idMatch[1] : null;
         
         if (!encryptedId) {
@@ -458,3 +458,4 @@ function inspectPageFallback(episodeHtml, episodeUrl, streams) {
 }
 
 module.exports = { getStreams };
+
