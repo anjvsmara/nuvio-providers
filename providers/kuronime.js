@@ -155,7 +155,7 @@ function inspectPlayerPage(playerUrl, referer, streams) {
         });
         
         // Tambahkan pixeldrain ke regex pencarian media
-        const mediaRegex = /https?:\/\/[^"'\s<]+?(?:\.m3u8|\.mp4)(?!\w)|https?:\/\/[^"'\s<]+?(?:googlevideo|blogger|blogspot|bloggerusercontent|pixeldrain)[^"'\s<]*/gi;
+        const mediaRegex = /https?:\/\/[^\"'\s<]+?(?:\.m3u8|\.mp4)(?!\w)|https?:\/\/[^\"'\s<]+?(?:googlevideo|blogger|blogspot|bloggerusercontent|pixeldrain)[^\"'\s<]*/gi;
         let match;
         while ((match = mediaRegex.exec(cleanHtml)) !== null) {
             candidates.add(match[0]);
@@ -340,11 +340,18 @@ function extractStreamsFromEpisode(episodeUrl) {
                 "Content-Type": "application/json",
                 "Origin": BASE_URL,
                 "Referer": episodeUrl,
-                "Accept": "application/json, text/plain, */*"
+                "Accept": "application/json, text/plain, */*",
+                "User-Agent": USER_AGENT
             },
             body: JSON.stringify({ id: encryptedId })
         })
-        .then(res => res.json())
+        .then(res => {
+            console.log(`[Kuronime] Sources API status: ${res.status}`);
+            if (!res.ok) {
+                throw new Error(`Sources API HTTP ${res.status}`);
+            }
+            return res.json();
+        })
         .then(sourcesResponse => {
             const mirrorPayload = sourcesResponse.mirror ? decodeMirrorPayload(sourcesResponse.mirror) : null;
             const embedUrls = [];
@@ -420,6 +427,10 @@ function extractStreamsFromEpisode(episodeUrl) {
                 }
                 return streams;
             });
+        })
+        .catch(err => {
+            console.error(`[Kuronime] Sources API failed: ${err.message}`);
+            return inspectPageFallback(html, episodeUrl, streams);
         });
     });
 }
@@ -509,4 +520,8 @@ function getStreams(tmdbId, mediaType = "movie", season = null, episode = null) 
     });
 }
 
-module.exports = { getStreams };
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = { getStreams };
+} else {
+    global.getStreams = getStreams;
+}
