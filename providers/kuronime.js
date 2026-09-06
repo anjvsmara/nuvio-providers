@@ -78,7 +78,8 @@ function isDirectMedia(url) {
            cleanUrl.includes("mime=video/mp4") || 
            cleanUrl.includes("mime=video%2fmp4") || 
            cleanUrl.includes("googlevideo") || 
-           cleanUrl.includes("bloggerusercontent");
+           cleanUrl.includes("bloggerusercontent") ||
+           cleanUrl.includes("pixeldrain.com/api/file/");
 }
 
 function getQualityFromUrl(url) {
@@ -87,7 +88,7 @@ function getQualityFromUrl(url) {
 }
 
 function unpack(html) {
-    const packerRegex = /eval\(function\(p,a,c,k,e,[rd]\)\{[\s\S]*?return\s+p[\s\S]*?\}\(([\s\S]*?)\)\)/;
+    const packerRegex = /eval\(function\(p,a,c,k,e,[rd]\)\{[\s\S]*?return\s+p[\\s\\S]*?\}\(([\\s\\S]*?)\)\)/;
     const match = html.match(packerRegex);
     if (!match) return html;
     try {
@@ -102,7 +103,7 @@ function unpack(html) {
         
         while (c--) {
             if (k[c]) {
-                p = p.replace(new RegExp('\\b' + decode(c) + '\\b', 'g'), k[c]);
+                p = p.replace(new RegExp('\\\\b' + decode(c) + '\\\\b', 'g'), k[c]);
             }
         }
         return p;
@@ -112,6 +113,25 @@ function unpack(html) {
 }
 
 function inspectPlayerPage(playerUrl, referer, streams) {
+    // Jika URL tersebut adalah link Pixeldrain, konversi langsung tanpa fetching!
+    if (playerUrl.includes('pixeldrain.com')) {
+        const idMatch = playerUrl.match(/(?:u|api\/file)\/([a-zA-Z0-9_-]+)/);
+        if (idMatch) {
+            const id = idMatch[1];
+            const quality = getQualityFromUrl(playerUrl);
+            streams.push({
+                name: "Kuronime",
+                title: `Pixeldrain - Direct (${quality})`,
+                url: `https://pixeldrain.com/api/file/${id}`,
+                quality: quality,
+                headers: {
+                    "User-Agent": USER_AGENT
+                }
+            });
+            return Promise.resolve();
+        }
+    }
+
     return fetch(playerUrl, {
         headers: {
             "Referer": referer,
@@ -134,15 +154,30 @@ function inspectPlayerPage(playerUrl, referer, streams) {
             }
         });
         
-        // Memakai negative lookahead (?!\w) agar tidak menangkap domain ".mp4upload.com" sebagai ".mp4"
-        const mediaRegex = /https?:\/\/[^"'\s<]+?(?:\.m3u8|\.mp4)(?!\w)|https?:\/\/[^"'\s<]+?(?:googlevideo|blogger|blogspot|bloggerusercontent)[^"'\s<]*/gi;
+        // Tambahkan pixeldrain ke regex pencarian media
+        const mediaRegex = /https?:\\/\\/[^\"'\\s<]+?(?:\\.m3u8|\\.mp4)(?!\\w)|https?:\\/\\/[^\"'\\s<]+?(?:googlevideo|blogger|blogspot|bloggerusercontent|pixeldrain)[^\"'\\s<]*/gi;
         let match;
         while ((match = mediaRegex.exec(cleanHtml)) !== null) {
             candidates.add(match[0]);
         }
         
         candidates.forEach(url => {
-            if (isDirectMedia(url)) {
+            if (url.includes('pixeldrain.com')) {
+                const idMatch = url.match(/(?:u|api\/file)\/([a-zA-Z0-9_-]+)/);
+                if (idMatch) {
+                    const id = idMatch[1];
+                    const quality = getQualityFromUrl(url);
+                    streams.push({
+                        name: "Kuronime",
+                        title: `Pixeldrain - Direct (${quality})`,
+                        url: `https://pixeldrain.com/api/file/${id}`,
+                        quality: quality,
+                        headers: {
+                            "User-Agent": USER_AGENT
+                        }
+                    });
+                }
+            } else if (isDirectMedia(url)) {
                 streams.push({
                     name: "Kuronime",
                     title: `Mirror (${getQualityFromUrl(url)})`,
@@ -278,6 +313,140 @@ function getEpisodes(animeUrl) {
     });
 }
 
+function extractStreamsFromEpisode(episodeUrl) {
+    console.log(`[Kuronime] Extracting streams from: ${episodeUrl}`);
+    const streams = [];
+    
+    return fetch(episodeUrl, {
+        headers: {
+            "Referer": BASE_URL,
+            "User-Agent": USER_AGENT
+        }
+    })
+    .then(res => res.text())
+    .then(html => {
+        const idMatch = html.match(/var\s+_0xa100d42aa\s*=\s*["\']([^\"\']+)["\']/);
+        const encryptedId = idMatch ? idMatch[1] : null;
+        
+        if (!encryptedId) {
+            console.log('[Kuronime] No encrypted ID found in page script');
+            return inspectPageFallback(html, episodeUrl, streams);
+        }
+        
+        console.log(`[Kuronime] Found encrypted ID: ${encryptedId}`);
+        return fetch("https://animeku.org/api/v9/sources", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+                "Origin": BASE_URL,
+                "Referer": episodeUrl,
+                "Accept": "application/json, text/plain, */*"
+            },
+            body: JSON.stringify({ id: encryptedId })
+        })
+        .then(res => res.json())
+        .then(sourcesResponse => {
+            const mirrorPayload = sourcesResponse.mirror ? decodeMirrorPayload(sourcesResponse.mirror) : null;
+            const embedUrls = [];
+            
+            if (mirrorPayload) {
+                if (mirrorPayload.embed) {
+                    for (const quality in mirrorPayload.embed) {
+                        const hosts = mirrorPayload.embed[quality];
+                        for (const hostName in hosts) {
+                            const url = hosts[hostName];
+                            if (url && url.startsWith('http')) {
+                                embedUrls.push({ url, quality });
+                            }
+                        }
+                    }
+                }
+                if (mirrorPayload.filelions && mirrorPayload.filelions.startsWith('http')) {
+                    embedUrls.push({ url: mirrorPayload.filelions, quality: 'Auto' });
+                }
+                if (mirrorPayload.blog && mirrorPayload.blog.startsWith('http')) {
+                    embedUrls.push({ url: mirrorPayload.blog, quality: 'Auto' });
+                }
+                if (mirrorPayload.raw && mirrorPayload.raw.startsWith('http')) {
+                    embedUrls.push({ url: mirrorPayload.raw, quality: 'Auto' });
+                }
+            }
+            
+            if (embedUrls.length === 0) {
+                console.log('[Kuronime] Sources API returned no mirror links');
+                return inspectPageFallback(html, episodeUrl, streams);
+            }
+            
+            console.log(`[Kuronime] Found ${embedUrls.length} mirror urls to inspect`);
+            const promises = embedUrls.map(item => {
+                // SULAP PIXELDRAIN LANGSUNG JADI LINK PLAYABLE TANPA FETCHING
+                if (item.url.includes('pixeldrain.com')) {
+                    const idMatch = item.url.match(/(?:u|api\/file)\/([a-zA-Z0-9_-]+)/);
+                    if (idMatch) {
+                        const id = idMatch[1];
+                        streams.push({
+                            name: "Kuronime",
+                            title: `Pixeldrain - Direct (${item.quality || 'Auto'})`,
+                            url: `https://pixeldrain.com/api/file/${id}`,
+                            quality: item.quality || 'Auto',
+                            headers: {
+                                "User-Agent": USER_AGENT
+                            }
+                        });
+                        return Promise.resolve();
+                    }
+                }
+
+                if (isDirectMedia(item.url)) {
+                    streams.push({
+                        name: "Kuronime",
+                        title: `Mirror (${item.quality})`,
+                        url: item.url,
+                        quality: item.quality,
+                        headers: {
+                            "Referer": episodeUrl,
+                            "User-Agent": USER_AGENT
+                        }
+                    });
+                    return Promise.resolve();
+                } else {
+                    return inspectPlayerPage(item.url, episodeUrl, streams);
+                }
+            });
+            
+            return Promise.all(promises).then(() => {
+                if (streams.length === 0) {
+                    return inspectPageFallback(html, episodeUrl, streams);
+                }
+                return streams;
+            });
+        });
+    });
+}
+
+function inspectPageFallback(episodeHtml, episodeUrl, streams) {
+    console.log('[Kuronime] Running page fallback scraping...');
+    const candidates = [];
+    const $ = cheerio.load(episodeHtml);
+    
+    $('iframe[src], iframe[data-src]').each((i, el) => {
+        const src = $(el).attr('src') || $(el).attr('data-src');
+        if (src && src.startsWith('http')) {
+            candidates.push(src.trim());
+        }
+    });
+    
+    if (candidates.length === 0) {
+        return Promise.resolve(streams);
+    }
+    
+    const promises = candidates.map(url => {
+        return inspectPlayerPage(url, episodeUrl, streams);
+    });
+    
+    return Promise.all(promises).then(() => streams);
+}
+
 function getStreams(tmdbId, mediaType = "movie", season = null, episode = null) {
     console.log(`[Kuronime] Starting extraction for TMDB ID: ${tmdbId}, Type: ${mediaType}, Season: ${season}, Episode: ${episode}`);
     
@@ -340,122 +509,4 @@ function getStreams(tmdbId, mediaType = "movie", season = null, episode = null) 
     });
 }
 
-function extractStreamsFromEpisode(episodeUrl) {
-    console.log(`[Kuronime] Extracting streams from: ${episodeUrl}`);
-    const streams = [];
-    
-    return fetch(episodeUrl, {
-        headers: {
-            "Referer": BASE_URL,
-            "User-Agent": USER_AGENT
-        }
-    })
-    .then(res => res.text())
-    .then(html => {
-        const idMatch = html.match(/var\s+_0xa100d42aa\s*=\s*["\']([^"\']+)["\']/);
-        const encryptedId = idMatch ? idMatch[1] : null;
-        
-        if (!encryptedId) {
-            console.log('[Kuronime] No encrypted ID found in page script');
-            return inspectPageFallback(html, episodeUrl, streams);
-        }
-        
-        console.log(`[Kuronime] Found encrypted ID: ${encryptedId}`);
-        return fetch("https://animeku.org/api/v9/sources", {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-                "Origin": BASE_URL,
-                "Referer": episodeUrl,
-                "Accept": "application/json, text/plain, */*"
-            },
-            body: JSON.stringify({ id: encryptedId })
-        })
-        .then(res => res.json())
-        .then(sourcesResponse => {
-            const mirrorPayload = sourcesResponse.mirror ? decodeMirrorPayload(sourcesResponse.mirror) : null;
-            const embedUrls = [];
-            
-            if (mirrorPayload) {
-                if (mirrorPayload.embed) {
-                    for (const quality in mirrorPayload.embed) {
-                        const hosts = mirrorPayload.embed[quality];
-                        for (const hostName in hosts) {
-                            const url = hosts[hostName];
-                            if (url && url.startsWith('http')) {
-                                embedUrls.push({ url, quality });
-                            }
-                        }
-                    }
-                }
-                if (mirrorPayload.filelions && mirrorPayload.filelions.startsWith('http')) {
-                    embedUrls.push({ url: mirrorPayload.filelions, quality: 'Auto' });
-                }
-                if (mirrorPayload.blog && mirrorPayload.blog.startsWith('http')) {
-                    embedUrls.push({ url: mirrorPayload.blog, quality: 'Auto' });
-                }
-                if (mirrorPayload.raw && mirrorPayload.raw.startsWith('http')) {
-                    embedUrls.push({ url: mirrorPayload.raw, quality: 'Auto' });
-                }
-            }
-            
-            if (embedUrls.length === 0) {
-                console.log('[Kuronime] Sources API returned no mirror links');
-                return inspectPageFallback(html, episodeUrl, streams);
-            }
-            
-            console.log(`[Kuronime] Found ${embedUrls.length} mirror urls to inspect`);
-            const promises = embedUrls.map(item => {
-                if (isDirectMedia(item.url)) {
-                    streams.push({
-                        name: "Kuronime",
-                        title: `Mirror (${item.quality})`,
-                        url: item.url,
-                        quality: item.quality,
-                        headers: {
-                            "Referer": episodeUrl,
-                            "User-Agent": USER_AGENT
-                        }
-                    });
-                    return Promise.resolve();
-                } else {
-                    return inspectPlayerPage(item.url, episodeUrl, streams);
-                }
-            });
-            
-            return Promise.all(promises).then(() => {
-                if (streams.length === 0) {
-                    return inspectPageFallback(html, episodeUrl, streams);
-                }
-                return streams;
-            });
-        });
-    });
-}
-
-function inspectPageFallback(episodeHtml, episodeUrl, streams) {
-    console.log('[Kuronime] Running page fallback scraping...');
-    const candidates = [];
-    const $ = cheerio.load(episodeHtml);
-    
-    $('iframe[src], iframe[data-src]').each((i, el) => {
-        const src = $(el).attr('src') || $(el).attr('data-src');
-        if (src && src.startsWith('http')) {
-            candidates.push(src.trim());
-        }
-    });
-    
-    if (candidates.length === 0) {
-        return Promise.resolve(streams);
-    }
-    
-    const promises = candidates.map(url => {
-        return inspectPlayerPage(url, episodeUrl, streams);
-    });
-    
-    return Promise.all(promises).then(() => streams);
-    
-}
-
 module.exports = { getStreams };
-
