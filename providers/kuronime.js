@@ -155,7 +155,7 @@ function inspectPlayerPage(playerUrl, referer, streams) {
         });
         
         // Tambahkan pixeldrain ke regex pencarian media
-        const mediaRegex = /https?:\\/\\/[^\"'\\s<]+?(?:\\.m3u8|\\.mp4)(?!\\w)|https?:\\/\\/[^\"'\\s<]+?(?:googlevideo|blogger|blogspot|bloggerusercontent|pixeldrain)[^\"'\\s<]*/gi;
+        const mediaRegex = /https?:\/\/[^"'\s<]+?(?:\.m3u8|\.mp4)(?!\w)|https?:\/\/[^"'\s<]+?(?:googlevideo|blogger|blogspot|bloggerusercontent|pixeldrain)[^"'\s<]*/gi;
         let match;
         while ((match = mediaRegex.exec(cleanHtml)) !== null) {
             candidates.add(match[0]);
